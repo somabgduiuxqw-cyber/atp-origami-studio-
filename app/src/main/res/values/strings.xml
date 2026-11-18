@@ -1,0 +1,68 @@
+<resources>
+    <string name="app_name">ATP Origami Studio</string>
+
+    <!-- Home / Dashboard -->
+    <string name="home_subtitle">Precision Crease Pattern Studio</string>
+    <string name="home_search_hint">Search projects…</string>
+    <string name="home_create_project">New Project</string>
+    <string name="home_recent_projects">Projects</string>
+    <string name="home_templates">Starter Bases</string>
+    <string name="home_empty_title">No Crease Patterns Yet</string>
+    <string name="home_empty_subtitle">Start from a blank sheet or pick a classic origami base template to begin drafting.</string>
+    <string name="home_no_search_results">No matching projects found</string>
+    <string name="home_settings">Settings</string>
+
+    <!-- Project Creation & Actions -->
+    <string name="dialog_new_project_title">New Crease Pattern</string>
+    <string name="dialog_project_name">Project Name</string>
+    <string name="dialog_paper_preset">Paper Size</string>
+    <string name="dialog_paper_width_mm">Width (mm)</string>
+    <string name="dialog_paper_height_mm">Height (mm)</string>
+    <string name="dialog_grid_spacing_mm">Grid Spacing (mm)</string>
+    <string name="action_create">Create</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_duplicate">Duplicate</string>
+    <string name="action_delete">Delete</string>
+    <string name="dialog_rename_title">Rename Project</string>
+    <string name="dialog_delete_title">Delete Project?</string>
+    <string name="dialog_delete_message">This removes the project and its crease pattern file from this device. This action cannot be undone.</string>
+
+    <!-- Editor Toolbar & Canvas -->
+    <string name="cd_back">Back to Projects</string>
+    <string name="cd_undo">Undo</string>
+    <string name="cd_redo">Redo</string>
+    <string name="cd_save">Save Project</string>
+    <string name="cd_more_options">Editor Options</string>
+    <string name="cd_toggle_tools">Toggle Tool Panel</string>
+    <string name="status_saved">Saved</string>
+    <string name="status_unsaved">Modified</string>
+    <string name="status_saving">Saving…</string>
+
+    <!-- Tools -->
+    <string name="tool_select">Select</string>
+    <string name="tool_pan">Pan</string>
+    <string name="tool_point">Point</string>
+    <string name="tool_line">Line</string>
+    <string name="tool_eraser">Erase</string>
+
+    <!-- Fold Assignments -->
+    <string name="fold_mountain">Mountain</string>
+    <string name="fold_valley">Valley</string>
+    <string name="fold_boundary">Boundary</string>
+    <string name="fold_unassigned">Unassigned</string>
+    <string name="fold_construction">Construct</string>
+
+    <!-- Options & Settings -->
+    <string name="option_zoom_fit">Zoom to Fit</string>
+    <string name="option_toggle_grid">Show Grid</string>
+    <string name="option_snap_grid">Snap to Grid</string>
+    <string name="option_snap_vertex">Snap to Vertices</string>
+    <string name="option_show_coords">Coordinate HUD</string>
+    <string name="option_paper_settings">Paper &amp; Grid Setup</string>
+    <string name="settings_title">Studio Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_defaults">Canvas Defaults</string>
+    <string name="settings_about">About ATP Origami Studio</string>
+</resources>

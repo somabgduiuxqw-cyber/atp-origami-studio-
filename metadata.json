@@ -1,0 +1,6 @@
+{
+  "name": "ATP Origami Studio",
+  "description": "Precision mobile origami crease-pattern editor with vector paper-space canvas, Mountain/Valley fold assignments, command history, and local Room + JSON persistence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
