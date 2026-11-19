@@ -42,6 +42,22 @@ class SettingsViewModel(
     viewModelScope.launch { preferencesRepository.setDefaultSnapToVertex(enabled) }
   }
 
+  fun setDefaultSnapToIntersection(enabled: Boolean) {
+    viewModelScope.launch { preferencesRepository.setDefaultSnapToIntersection(enabled) }
+  }
+
+  fun setDefaultSnapToMidpoint(enabled: Boolean) {
+    viewModelScope.launch { preferencesRepository.setDefaultSnapToMidpoint(enabled) }
+  }
+
+  fun setShowConstructionLines(enabled: Boolean) {
+    viewModelScope.launch { preferencesRepository.setShowConstructionLines(enabled) }
+  }
+
+  fun setShowIntersections(enabled: Boolean) {
+    viewModelScope.launch { preferencesRepository.setShowIntersections(enabled) }
+  }
+
   fun setShowCoordinateHud(enabled: Boolean) {
     viewModelScope.launch { preferencesRepository.setShowCoordinateHud(enabled) }
   }

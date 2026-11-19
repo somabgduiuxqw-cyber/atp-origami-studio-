@@ -133,6 +133,30 @@ fun SettingsScreen(
             onCheckedChange = viewModel::setDefaultSnapToVertex,
           )
           SettingsToggleRow(
+            title = "Snap to Geometric Intersections",
+            subtitle = "Snap directly to line, segment, and circle intersections",
+            checked = prefs.defaultSnapToIntersection,
+            onCheckedChange = viewModel::setDefaultSnapToIntersection,
+          )
+          SettingsToggleRow(
+            title = "Snap to Edge Midpoints",
+            subtitle = "Snap to the exact midpoint of crease segments",
+            checked = prefs.defaultSnapToMidpoint,
+            onCheckedChange = viewModel::setDefaultSnapToMidpoint,
+          )
+          SettingsToggleRow(
+            title = "Show Construction Geometry",
+            subtitle = "Display construction lines, circles, and arcs in the editor",
+            checked = prefs.showConstructionLines,
+            onCheckedChange = viewModel::setShowConstructionLines,
+          )
+          SettingsToggleRow(
+            title = "Highlight Intersections",
+            subtitle = "Render intersection markers across crossing geometry",
+            checked = prefs.showIntersections,
+            onCheckedChange = viewModel::setShowIntersections,
+          )
+          SettingsToggleRow(
             title = "Coordinate & Zoom HUD",
             subtitle = "Show paper-space coordinates and zoom level overlay",
             checked = prefs.showCoordinateHud,
@@ -142,12 +166,12 @@ fun SettingsScreen(
 
         SettingsSectionCard(title = stringResource(R.string.settings_about)) {
           Text(
-            text = "ATP Origami Studio · Version 0.1",
+            text = "ATP Origami Studio · Version 0.2",
             style = MaterialTheme.typography.titleMedium,
           )
           Text(
             text =
-              "Local-first vector origami crease-pattern studio built with Kotlin, Jetpack Compose, Room metadata indexing, and atomic JSON project files.",
+              "Precision local-first origami crease-pattern studio with computational geometry constructions, intersection solver, multi-mode snapping, symmetry, and transformations.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )

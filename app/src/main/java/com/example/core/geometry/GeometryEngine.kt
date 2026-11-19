@@ -1,17 +1,22 @@
 package com.example.core.geometry
 
+import com.example.core.model.ArcPrimitive
+import com.example.core.model.CirclePrimitive
 import com.example.core.model.CreasePatternDocument
 import com.example.core.model.Edge
-import com.example.core.model.FoldAssignment
 import com.example.core.model.PaperSpec
 import com.example.core.model.Vec2
 import com.example.core.model.Vertex
+import com.example.core.model.FoldAssignment
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.round
+import kotlin.math.sin
 
 object GeometryEngine {
   const val EPSILON: Double = 1e-6
@@ -24,6 +29,24 @@ object GeometryEngine {
     val dy = b.y - a.y
     return dx * dx + dy * dy
   }
+
+  fun dot(a: Vec2, b: Vec2): Double = a.x * b.x + a.y * b.y
+
+  fun cross(a: Vec2, b: Vec2): Double = a.x * b.y - a.y * b.x
+
+  fun length(v: Vec2): Double = hypot(v.x, v.y)
+
+  fun normalize(v: Vec2): Vec2? {
+    val len = length(v)
+    return if (len <= EPSILON) null else Vec2(v.x / len, v.y / len)
+  }
+
+  fun perpendicularUnit(dir: Vec2): Vec2? {
+    val unit = normalize(dir) ?: return null
+    return Vec2(-unit.y, unit.x)
+  }
+
+  fun midpoint(a: Vec2, b: Vec2): Vec2 = Vec2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)
 
   fun pointToSegmentDistance(point: Vec2, a: Vec2, b: Vec2): Double {
     val projected = projectPointOntoSegment(point, a, b)
@@ -39,9 +62,43 @@ object GeometryEngine {
     return Vec2(a.x + t * dx, a.y + t * dy)
   }
 
+  fun projectPointOntoInfiniteLine(point: Vec2, lineOrigin: Vec2, lineDir: Vec2): Vec2 {
+    val unit = normalize(lineDir) ?: return lineOrigin
+    val t = dot(point - lineOrigin, unit)
+    return lineOrigin + unit * t
+  }
+
   fun angleDegrees(a: Vec2, b: Vec2): Double {
     val deg = Math.toDegrees(atan2(b.y - a.y, b.x - a.x))
-    return if (deg < 0.0) deg + 360.0 else deg
+    return normalizeAngleDeg(deg)
+  }
+
+  fun normalizeAngleDeg(deg: Double): Double {
+    var result = deg % 360.0
+    if (result < 0.0) result += 360.0
+    return result
+  }
+
+  fun isAngleOnArc(angleDeg: Double, startAngleDeg: Double, sweepAngleDeg: Double, tolDeg: Double = 0.5): Boolean {
+    if (abs(sweepAngleDeg) >= 360.0 - tolDeg) return true
+    val normAngle = normalizeAngleDeg(angleDeg)
+    val normStart = normalizeAngleDeg(startAngleDeg)
+    return if (sweepAngleDeg >= 0.0) {
+      val diff = normalizeAngleDeg(normAngle - normStart)
+      diff <= sweepAngleDeg + tolDeg || diff >= 360.0 - tolDeg
+    } else {
+      val diff = normalizeAngleDeg(normStart - normAngle)
+      diff <= abs(sweepAngleDeg) + tolDeg || diff >= 360.0 - tolDeg
+    }
+  }
+
+  fun snapAngleFromAnchor(anchor: Vec2, rawPoint: Vec2, stepDeg: Double): Vec2 {
+    val dist = distance(anchor, rawPoint)
+    if (dist <= EPSILON || stepDeg <= EPSILON) return rawPoint
+    val rawAngle = angleDegrees(anchor, rawPoint)
+    val snappedDeg = round(rawAngle / stepDeg) * stepDeg
+    val rad = Math.toRadians(snappedDeg)
+    return Vec2(anchor.x + dist * cos(rad), anchor.y + dist * sin(rad))
   }
 
   fun findNearestVertex(
@@ -81,6 +138,42 @@ object GeometryEngine {
     return bestEdge
   }
 
+  fun findNearestCircle(
+    document: CreasePatternDocument,
+    point: Vec2,
+    maxDistanceMm: Double,
+  ): CirclePrimitive? {
+    var best: CirclePrimitive? = null
+    var bestDist = maxDistanceMm
+    for (circle in document.circles) {
+      val d = abs(distance(circle.center, point) - circle.radiusMm)
+      if (d <= bestDist) {
+        bestDist = d
+        best = circle
+      }
+    }
+    return best
+  }
+
+  fun findNearestArc(
+    document: CreasePatternDocument,
+    point: Vec2,
+    maxDistanceMm: Double,
+  ): ArcPrimitive? {
+    var best: ArcPrimitive? = null
+    var bestDist = maxDistanceMm
+    for (arc in document.arcs) {
+      val ang = angleDegrees(arc.center, point)
+      if (!isAngleOnArc(ang, arc.startAngleDeg, arc.sweepAngleDeg, tolDeg = 4.0)) continue
+      val d = abs(distance(arc.center, point) - arc.radiusMm)
+      if (d <= bestDist) {
+        bestDist = d
+        best = arc
+      }
+    }
+    return best
+  }
+
   fun findDuplicateVertex(
     vertices: List<Vertex>,
     point: Vec2,
@@ -106,20 +199,16 @@ object GeometryEngine {
   }
 
   fun segmentIntersection(a1: Vec2, a2: Vec2, b1: Vec2, b2: Vec2): Vec2? {
-    val d1x = a2.x - a1.x
-    val d1y = a2.y - a1.y
-    val d2x = b2.x - b1.x
-    val d2y = b2.y - b1.y
-    val denom = d1x * d2y - d1y * d2x
-    if (abs(denom) <= EPSILON) return null
-    val dx = b1.x - a1.x
-    val dy = b1.y - a1.y
-    val t = (dx * d2y - dy * d2x) / denom
-    val u = (dx * d1y - dy * d1x) / denom
-    if (t in -EPSILON..(1.0 + EPSILON) && u in -EPSILON..(1.0 + EPSILON)) {
-      return Vec2(a1.x + t.coerceIn(0.0, 1.0) * d1x, a1.y + t.coerceIn(0.0, 1.0) * d1y)
+    val result =
+      IntersectionEngine.intersectSegmentSegment(
+        Segment2D(a1, a2),
+        Segment2D(b1, b2),
+        tolerance = EPSILON,
+      )
+    return when (result) {
+      is SegmentIntersectionResult.Point -> result.point
+      else -> null
     }
-    return null
   }
 
   fun clampToPaper(point: Vec2, paper: PaperSpec): Vec2 {

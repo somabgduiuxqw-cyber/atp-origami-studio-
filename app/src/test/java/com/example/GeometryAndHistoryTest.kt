@@ -75,7 +75,7 @@ class GeometryAndHistoryTest {
       SnapEngine.resolveSnap(
         rawPaperPoint = Vec2(50.5, 50.5),
         document = doc,
-        config = SnapConfig(snapToGrid = true, snapToVertex = true, gridSpacingMm = 25.0, vertexSnapRadiusMm = 8.0, gridSnapRadiusMm = 6.0),
+        config = SnapConfig(snapToGrid = true, snapToVertex = true, gridSpacingMm = 25.0, snapRadiusMm = 8.0),
       )
     assertEquals(SnapKind.VERTEX, snap.kind)
     assertEquals("v1", snap.snappedVertexId)

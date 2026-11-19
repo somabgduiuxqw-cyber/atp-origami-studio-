@@ -1,5 +1,7 @@
 package com.example.core.history
 
+import com.example.core.model.ArcPrimitive
+import com.example.core.model.CirclePrimitive
 import com.example.core.model.CreasePatternDocument
 import com.example.core.model.Edge
 import com.example.core.model.FoldAssignment
@@ -13,6 +15,39 @@ interface EditorCommand {
   fun execute(doc: CreasePatternDocument): CreasePatternDocument
 
   fun undo(doc: CreasePatternDocument): CreasePatternDocument
+}
+
+/**
+ * Lossless geometric state transition command for multi-entity operations
+ * (intersection splits, vertex merges, polygons, symmetry, multi-selection transforms,
+ * trim/extend, circle/arc creation).
+ */
+class DocumentSnapshotCommand(
+  override val description: String,
+  private val before: CreasePatternDocument,
+  private val after: CreasePatternDocument,
+) : EditorCommand {
+  override fun execute(doc: CreasePatternDocument): CreasePatternDocument {
+    return doc.copy(
+      paper = after.paper,
+      vertices = after.vertices,
+      edges = after.edges,
+      circles = after.circles,
+      arcs = after.arcs,
+      updatedAt = System.currentTimeMillis(),
+    )
+  }
+
+  override fun undo(doc: CreasePatternDocument): CreasePatternDocument {
+    return doc.copy(
+      paper = before.paper,
+      vertices = before.vertices,
+      edges = before.edges,
+      circles = before.circles,
+      arcs = before.arcs,
+      updatedAt = System.currentTimeMillis(),
+    )
+  }
 }
 
 class AddVertexCommand(private val vertex: Vertex) : EditorCommand {
@@ -63,6 +98,38 @@ class AddCreaseCommand(
     return doc.copy(
       vertices = doc.vertices.filterNot { it.id in removedVertexIds },
       edges = doc.edges.filterNot { it.id == edge.id },
+      updatedAt = System.currentTimeMillis(),
+    )
+  }
+}
+
+class AddCircleCommand(private val circle: CirclePrimitive) : EditorCommand {
+  override val description: String = "Add circle"
+
+  override fun execute(doc: CreasePatternDocument): CreasePatternDocument {
+    if (doc.circles.any { it.id == circle.id }) return doc
+    return doc.copy(circles = doc.circles + circle, updatedAt = System.currentTimeMillis())
+  }
+
+  override fun undo(doc: CreasePatternDocument): CreasePatternDocument {
+    return doc.copy(
+      circles = doc.circles.filterNot { it.id == circle.id },
+      updatedAt = System.currentTimeMillis(),
+    )
+  }
+}
+
+class AddArcCommand(private val arc: ArcPrimitive) : EditorCommand {
+  override val description: String = "Add arc"
+
+  override fun execute(doc: CreasePatternDocument): CreasePatternDocument {
+    if (doc.arcs.any { it.id == arc.id }) return doc
+    return doc.copy(arcs = doc.arcs + arc, updatedAt = System.currentTimeMillis())
+  }
+
+  override fun undo(doc: CreasePatternDocument): CreasePatternDocument {
+    return doc.copy(
+      arcs = doc.arcs.filterNot { it.id == arc.id },
       updatedAt = System.currentTimeMillis(),
     )
   }

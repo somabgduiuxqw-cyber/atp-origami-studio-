@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -37,31 +38,41 @@ import com.example.core.geometry.ViewportTransform
 import com.example.core.model.CreasePatternDocument
 import com.example.core.model.FoldAssignment
 import com.example.core.model.Vec2
+import com.example.core.model.Vertex
 import com.example.core.snapping.SnapKind
 import com.example.core.snapping.SnapResult
 import com.example.ui.theme.DraftingCanvasColors
 import com.example.ui.theme.LocalDraftingColors
-import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
 @Composable
 fun CreasePatternCanvas(
   document: CreasePatternDocument,
   state: EditorUiState,
   onTransformViewport: (zoomDelta: Float, panDeltaX: Float, panDeltaY: Float) -> Unit,
-  onSnapQuery: (rawPaper: Vec2, pixelsPerMm: Float) -> SnapResult,
+  onSnapQuery: (rawPaper: Vec2, pixelsPerMm: Float, anchorPoint: Vec2?) -> SnapResult,
   onHoverSnap: (rawPaper: Vec2?, snapResult: SnapResult?) -> Unit,
   onClearTransientPreviews: () -> Unit,
-  onPlacePoint: (SnapResult) -> Unit,
-  onBeginOrUpdateLineDrag: (startSnap: SnapResult, endSnap: SnapResult) -> Unit,
-  onHandleLineTap: (SnapResult) -> Unit,
-  onCommitLineSegment: (startPos: Vec2, startVertexId: String?, endPos: Vec2, endVertexId: String?) -> Unit,
-  onSelectAt: (paperPoint: Vec2, pixelsPerMm: Float) -> Unit,
-  onFindHitVertexForDrag: (paperPoint: Vec2, pixelsPerMm: Float) -> com.example.core.model.Vertex?,
-  onUpdateDragVertex: (vertex: com.example.core.model.Vertex, currentPos: Vec2, snapResult: SnapResult) -> Unit,
-  onCommitDragVertex: (vertexId: String, originalPos: Vec2, finalPos: Vec2) -> Unit,
-  onEraseAt: (paperPoint: Vec2, pixelsPerMm: Float) -> Unit,
+  onFindHitVertexForDrag: (paperPoint: Vec2, pixelsPerMm: Float) -> Vertex?,
+  onSingleFingerDrag: (
+    startRaw: Vec2,
+    startSnap: SnapResult,
+    curRaw: Vec2,
+    curSnap: SnapResult,
+    grabbedVertex: Vertex?,
+    moveSelectionActive: Boolean,
+  ) -> Unit,
+  onSingleFingerDragRelease: (
+    startRaw: Vec2,
+    startSnap: SnapResult,
+    endRaw: Vec2,
+    endSnap: SnapResult,
+    grabbedVertex: Vertex?,
+  ) -> Unit,
+  onCanvasTap: (rawPaper: Vec2, snapResult: SnapResult, pixelsPerMm: Float) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val canvasColors = LocalDraftingColors.current
@@ -102,19 +113,18 @@ fun CreasePatternCanvas(
 
             val startTransform = currentTransform
             val startRawPaper = startTransform.screenToPaper(downScreenPos.x, downScreenPos.y)
-            val startSnap = onSnapQuery(startRawPaper, startTransform.pixelsPerMm)
-
+            val startSnap = onSnapQuery(startRawPaper, startTransform.pixelsPerMm, null)
             val toolAtStart = currentState.activeTool
             val grabbedVertex =
-              if (toolAtStart == EditorTool.SELECT) {
+              if (toolAtStart == EditorTool.SELECT || toolAtStart == EditorTool.MOVE) {
                 onFindHitVertexForDrag(startRawPaper, startTransform.pixelsPerMm)
               } else {
                 null
               }
+            val moveSelectionActive =
+              toolAtStart == EditorTool.MOVE && currentState.selection.hasSelection
 
-            if (toolAtStart == EditorTool.POINT || toolAtStart == EditorTool.LINE) {
-              onHoverSnap(startRawPaper, startSnap)
-            }
+            onHoverSnap(startRawPaper, startSnap)
 
             while (true) {
               val event = awaitPointerEvent(PointerEventPass.Main)
@@ -162,30 +172,24 @@ fun CreasePatternCanvas(
 
                 val activeTransform = currentTransform
                 val curRawPaper = activeTransform.screenToPaper(change.position.x, change.position.y)
-                val curSnap = onSnapQuery(curRawPaper, activeTransform.pixelsPerMm)
+                val anchor = if (isDraggingSingle) startSnap.position else null
+                val curSnap = onSnapQuery(curRawPaper, activeTransform.pixelsPerMm, anchor)
 
-                when (toolAtStart) {
-                  EditorTool.PAN -> {
-                    if (delta != Offset.Zero) {
-                      onTransformViewport(1f, delta.x, delta.y)
-                    }
+                if (toolAtStart == EditorTool.PAN) {
+                  if (delta != Offset.Zero) {
+                    onTransformViewport(1f, delta.x, delta.y)
                   }
-                  EditorTool.POINT -> {
-                    onHoverSnap(curRawPaper, curSnap)
-                  }
-                  EditorTool.LINE -> {
-                    if (isDraggingSingle) {
-                      onBeginOrUpdateLineDrag(startSnap, curSnap)
-                    } else {
-                      onHoverSnap(curRawPaper, curSnap)
-                    }
-                  }
-                  EditorTool.SELECT -> {
-                    if (isDraggingSingle && grabbedVertex != null) {
-                      onUpdateDragVertex(grabbedVertex, curRawPaper, curSnap)
-                    }
-                  }
-                  EditorTool.ERASER -> Unit
+                } else if (isDraggingSingle) {
+                  onSingleFingerDrag(
+                    startRawPaper,
+                    startSnap,
+                    curRawPaper,
+                    curSnap,
+                    grabbedVertex,
+                    moveSelectionActive,
+                  )
+                } else {
+                  onHoverSnap(curRawPaper, curSnap)
                 }
                 change.consume()
               } else if (pressedChanges.isEmpty()) {
@@ -194,39 +198,20 @@ fun CreasePatternCanvas(
                   val releasePos = lastChange?.position ?: downScreenPos
                   val endTransform = currentTransform
                   val endRawPaper = endTransform.screenToPaper(releasePos.x, releasePos.y)
-                  val endSnap = onSnapQuery(endRawPaper, endTransform.pixelsPerMm)
+                  val anchor = if (isDraggingSingle) startSnap.position else null
+                  val endSnap = onSnapQuery(endRawPaper, endTransform.pixelsPerMm, anchor)
 
-                  when (toolAtStart) {
-                    EditorTool.PAN -> Unit
-                    EditorTool.POINT -> {
-                      onPlacePoint(endSnap)
-                      onClearTransientPreviews()
-                    }
-                    EditorTool.LINE -> {
-                      if (isDraggingSingle) {
-                        onCommitLineSegment(
-                          startSnap.position,
-                          startSnap.snappedVertexId,
-                          endSnap.position,
-                          endSnap.snappedVertexId,
-                        )
-                      } else {
-                        onHandleLineTap(endSnap)
-                      }
-                    }
-                    EditorTool.SELECT -> {
-                      if (isDraggingSingle && grabbedVertex != null) {
-                        onCommitDragVertex(
-                          grabbedVertex.id,
-                          grabbedVertex.position,
-                          endSnap.position,
-                        )
-                      } else {
-                        onSelectAt(endRawPaper, endTransform.pixelsPerMm)
-                      }
-                    }
-                    EditorTool.ERASER -> {
-                      onEraseAt(endRawPaper, endTransform.pixelsPerMm)
+                  if (toolAtStart != EditorTool.PAN) {
+                    if (isDraggingSingle) {
+                      onSingleFingerDragRelease(
+                        startRawPaper,
+                        startSnap,
+                        endRawPaper,
+                        endSnap,
+                        grabbedVertex,
+                      )
+                    } else {
+                      onCanvasTap(endRawPaper, endSnap, endTransform.pixelsPerMm)
                     }
                   }
                 } else {
@@ -270,7 +255,7 @@ fun CreasePatternCanvas(
         size = Size(paperW, paperH),
       )
 
-      // 2. Configurable Grid inside paper bounds
+      // 2. Configurable Grid
       if (uiState.showGrid && doc.paper.gridSpacingMm > GeometryEngine.EPSILON) {
         drawPaperGrid(
           transform = transform,
@@ -282,20 +267,85 @@ fun CreasePatternCanvas(
         )
       }
 
-      // 3. Build effective vertex map (applying live drag preview if any)
-      val dragPreview = uiState.dragVertexPreview
+      // 3. Build effective vertex position map (applying live drag offsets)
+      val dragOffsets = uiState.dragMovePreview?.vertexOffsets
       val vertexPosMap =
         doc.vertices.associate { v ->
-          val pos =
-            if (dragPreview != null && dragPreview.vertexId == v.id) {
-              dragPreview.currentPosition
-            } else {
-              v.position
-            }
+          val pos = dragOffsets?.get(v.id) ?: v.position
           v.id to pos
         }
 
-      // 4. Draw edges (construction/unassigned first, then valley/mountain, then boundary)
+      // 4. Draw Circles & Arcs
+      val showConstruction = uiState.geometrySettings.showConstructionLines
+      for (circle in doc.circles) {
+        if (!showConstruction && circle.assignment == FoldAssignment.CONSTRUCTION) continue
+        val (cx, cy) = transform.paperToScreen(circle.center)
+        val radiusPx = (circle.radiusMm * transform.pixelsPerMm).toFloat()
+        val isSelected = circle.id in uiState.selection.selectedCircleIds || circle.id == uiState.referenceCircleId
+        if (isSelected) {
+          drawCircle(
+            color = canvasColors.selection.copy(alpha = 0.45f),
+            radius = radiusPx,
+            center = Offset(cx, cy),
+            style = Stroke(width = 7.dp.toPx()),
+          )
+        }
+        val pathEffect =
+          when (circle.assignment) {
+            FoldAssignment.VALLEY -> valleyDash
+            FoldAssignment.CONSTRUCTION -> constructionDash
+            else -> null
+          }
+        drawCircle(
+          color = canvasColors.colorFor(circle.assignment),
+          radius = radiusPx,
+          center = Offset(cx, cy),
+          style = Stroke(width = 1.8.dp.toPx(), pathEffect = pathEffect),
+        )
+        // Center dot
+        drawCircle(
+          color = canvasColors.colorFor(circle.assignment).copy(alpha = 0.7f),
+          radius = 2.5.dp.toPx(),
+          center = Offset(cx, cy),
+        )
+      }
+
+      for (arc in doc.arcs) {
+        if (!showConstruction && arc.assignment == FoldAssignment.CONSTRUCTION) continue
+        val (cx, cy) = transform.paperToScreen(arc.center)
+        val radiusPx = (arc.radiusMm * transform.pixelsPerMm).toFloat()
+        val isSelected = arc.id in uiState.selection.selectedArcIds
+        val topLeft = Offset(cx - radiusPx, cy - radiusPx)
+        val arcSize = Size(radiusPx * 2f, radiusPx * 2f)
+        if (isSelected) {
+          drawArc(
+            color = canvasColors.selection.copy(alpha = 0.45f),
+            startAngle = arc.startAngleDeg.toFloat(),
+            sweepAngle = arc.sweepAngleDeg.toFloat(),
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round),
+          )
+        }
+        val pathEffect =
+          when (arc.assignment) {
+            FoldAssignment.VALLEY -> valleyDash
+            FoldAssignment.CONSTRUCTION -> constructionDash
+            else -> null
+          }
+        drawArc(
+          color = canvasColors.colorFor(arc.assignment),
+          startAngle = arc.startAngleDeg.toFloat(),
+          sweepAngle = arc.sweepAngleDeg.toFloat(),
+          useCenter = false,
+          topLeft = topLeft,
+          size = arcSize,
+          style = Stroke(width = 1.9.dp.toPx(), cap = StrokeCap.Round, pathEffect = pathEffect),
+        )
+      }
+
+      // 5. Draw Edges
       val orderedEdges =
         doc.edges.sortedBy { edge ->
           when (edge.assignment) {
@@ -308,6 +358,7 @@ fun CreasePatternCanvas(
         }
 
       for (edge in orderedEdges) {
+        if (!showConstruction && edge.assignment == FoldAssignment.CONSTRUCTION) continue
         val p1 = vertexPosMap[edge.startVertexId] ?: continue
         val p2 = vertexPosMap[edge.endVertexId] ?: continue
         val (x1, y1) = transform.paperToScreen(p1)
@@ -315,7 +366,7 @@ fun CreasePatternCanvas(
         val startOffset = Offset(x1, y1)
         val endOffset = Offset(x2, y2)
 
-        val isSelected = uiState.selection.selectedEdgeId == edge.id
+        val isSelected = edge.id in uiState.selection.selectedEdgeIds || edge.id == uiState.referenceEdgeId
         if (isSelected) {
           drawLine(
             color = canvasColors.selection.copy(alpha = 0.45f),
@@ -349,37 +400,122 @@ fun CreasePatternCanvas(
         )
       }
 
-      // 5. Pending line rubber-band preview
-      val pending = uiState.pendingLinePreview
-      if (pending != null) {
-        val (sx, sy) = transform.paperToScreen(pending.startPosition)
-        val startPx = Offset(sx, sy)
-        val endPaper = pending.currentEndPosition
-        if (endPaper != null) {
-          val (ex, ey) = transform.paperToScreen(endPaper)
+      // 6. Computed Intersection Markers
+      if (uiState.geometrySettings.showIntersections) {
+        val markerR = 3.5.dp.toPx()
+        for (hit in uiState.cachedIntersections) {
+          val (ix, iy) = transform.paperToScreen(hit)
+          drawCircle(
+            color = Color(0xFFEA580C).copy(alpha = 0.85f),
+            radius = markerR,
+            center = Offset(ix, iy),
+            style = Stroke(width = 1.4.dp.toPx()),
+          )
+        }
+      }
+
+      // 7. Live Preview Shape (drag / multi-step tool)
+      val activeColor = canvasColors.colorFor(uiState.activeAssignment).copy(alpha = 0.85f)
+      when (val preview = uiState.previewShape) {
+        is PreviewShape.SegmentPreview -> {
+          val (sx, sy) = transform.paperToScreen(preview.start)
+          val (ex, ey) = transform.paperToScreen(preview.end)
           drawLine(
-            color = canvasColors.colorFor(uiState.activeAssignment).copy(alpha = 0.85f),
-            start = startPx,
+            color = activeColor,
+            start = Offset(sx, sy),
             end = Offset(ex, ey),
-            strokeWidth = 2.4.dp.toPx(),
+            strokeWidth = 2.3.dp.toPx(),
             cap = StrokeCap.Round,
             pathEffect = previewDash,
           )
         }
+        is PreviewShape.CirclePreview -> {
+          val (cx, cy) = transform.paperToScreen(preview.center)
+          val rPx = (preview.radiusMm * transform.pixelsPerMm).toFloat()
+          drawCircle(
+            color = activeColor,
+            radius = rPx,
+            center = Offset(cx, cy),
+            style = Stroke(width = 2.dp.toPx(), pathEffect = previewDash),
+          )
+        }
+        is PreviewShape.ArcPreview -> {
+          val (cx, cy) = transform.paperToScreen(preview.center)
+          val rPx = (preview.radiusMm * transform.pixelsPerMm).toFloat()
+          drawArc(
+            color = activeColor,
+            startAngle = preview.startAngleDeg.toFloat(),
+            sweepAngle = preview.sweepAngleDeg.toFloat(),
+            useCenter = false,
+            topLeft = Offset(cx - rPx, cy - rPx),
+            size = Size(rPx * 2f, rPx * 2f),
+            style = Stroke(width = 2.dp.toPx(), pathEffect = previewDash),
+          )
+        }
+        is PreviewShape.PolygonPreview -> {
+          val pts = preview.points
+          for (i in 0 until pts.size - 1) {
+            val (x1, y1) = transform.paperToScreen(pts[i])
+            val (x2, y2) = transform.paperToScreen(pts[i + 1])
+            drawLine(
+              color = activeColor,
+              start = Offset(x1, y1),
+              end = Offset(x2, y2),
+              strokeWidth = 2.1.dp.toPx(),
+              pathEffect = previewDash,
+            )
+          }
+          if (preview.closed && pts.size >= 3) {
+            val (x1, y1) = transform.paperToScreen(pts.last())
+            val (x2, y2) = transform.paperToScreen(pts.first())
+            drawLine(
+              color = activeColor,
+              start = Offset(x1, y1),
+              end = Offset(x2, y2),
+              strokeWidth = 2.1.dp.toPx(),
+              pathEffect = previewDash,
+            )
+          }
+        }
+        is PreviewShape.BoxSelectPreview -> {
+          val (x1, y1) = transform.paperToScreen(preview.cornerA)
+          val (x2, y2) = transform.paperToScreen(preview.cornerB)
+          val left = min(x1, x2)
+          val top = min(y1, y2)
+          val w = max(1f, kotlin.math.abs(x2 - x1))
+          val h = max(1f, kotlin.math.abs(y2 - y1))
+          drawRect(
+            color = canvasColors.selection.copy(alpha = 0.14f),
+            topLeft = Offset(left, top),
+            size = Size(w, h),
+          )
+          drawRect(
+            color = canvasColors.selection,
+            topLeft = Offset(left, top),
+            size = Size(w, h),
+            style = Stroke(width = 1.5.dp.toPx(), pathEffect = previewDash),
+          )
+        }
+        null -> Unit
+      }
+
+      // 8. Picked multi-step anchor points
+      for (pt in uiState.pickedPoints) {
+        val (px, py) = transform.paperToScreen(pt)
         drawCircle(
           color = canvasColors.selection,
           radius = 6.dp.toPx(),
-          center = startPx,
+          center = Offset(px, py),
           style = Stroke(width = 2.dp.toPx()),
         )
       }
 
-      // 6. Vertices
+      // 9. Vertices
       for (vertex in doc.vertices) {
         val pos = vertexPosMap[vertex.id] ?: continue
         val (vx, vy) = transform.paperToScreen(pos)
         val center = Offset(vx, vy)
-        val isSelected = uiState.selection.selectedVertexId == vertex.id
+        val isSelected = vertex.id in uiState.selection.selectedVertexIds || vertex.id in uiState.pickedVertexIds
         if (isSelected) {
           drawCircle(
             color = canvasColors.selection.copy(alpha = 0.35f),
@@ -394,54 +530,100 @@ fun CreasePatternCanvas(
         } else {
           drawCircle(
             color = canvasColors.paperSheet,
-            radius = 3.2.dp.toPx(),
+            radius = 3.0.dp.toPx(),
             center = center,
           )
           drawCircle(
             color = canvasColors.vertexDot,
-            radius = 2.2.dp.toPx(),
+            radius = 2.0.dp.toPx(),
             center = center,
           )
         }
       }
 
-      // 7. Snap Reticle Indicator
+      // 10. Distinct Snap Reticle Indicators
       val snap = uiState.snapIndicator
       if (snap != null && snap.kind != SnapKind.NONE) {
-        val (sx, sy) = transform.paperToScreen(snap.position)
-        val center = Offset(sx, sy)
-        if (snap.kind == SnapKind.VERTEX) {
-          val r = 8.dp.toPx()
-          val diamond =
-            Path().apply {
-              moveTo(center.x, center.y - r)
-              lineTo(center.x + r, center.y)
-              lineTo(center.x, center.y + r)
-              lineTo(center.x - r, center.y)
-              close()
-            }
-          drawPath(
-            path = diamond,
-            color = canvasColors.snapVertex,
-            style = Stroke(width = 2.dp.toPx()),
-          )
-        } else if (snap.kind == SnapKind.GRID) {
-          val arm = 7.dp.toPx()
-          drawLine(
-            color = canvasColors.snapGrid,
-            start = Offset(center.x - arm, center.y),
-            end = Offset(center.x + arm, center.y),
-            strokeWidth = 1.8.dp.toPx(),
-          )
-          drawLine(
-            color = canvasColors.snapGrid,
-            start = Offset(center.x, center.y - arm),
-            end = Offset(center.x, center.y + arm),
-            strokeWidth = 1.8.dp.toPx(),
-          )
-        }
+        drawSnapIndicator(
+          transform = transform,
+          snap = snap,
+          colors = canvasColors,
+        )
       }
     }
+  }
+}
+
+private fun DrawScope.drawSnapIndicator(
+  transform: ViewportTransform,
+  snap: SnapIndicator,
+  colors: DraftingCanvasColors,
+) {
+  val (sx, sy) = transform.paperToScreen(snap.position)
+  val center = Offset(sx, sy)
+  val r = 8.dp.toPx()
+
+  when (snap.kind) {
+    SnapKind.VERTEX -> {
+      val diamond =
+        Path().apply {
+          moveTo(center.x, center.y - r)
+          lineTo(center.x + r, center.y)
+          lineTo(center.x, center.y + r)
+          lineTo(center.x - r, center.y)
+          close()
+        }
+      drawPath(diamond, color = colors.snapVertex, style = Stroke(width = 2.dp.toPx()))
+    }
+    SnapKind.ENDPOINT -> {
+      drawRect(
+        color = colors.snapVertex,
+        topLeft = Offset(center.x - r * 0.8f, center.y - r * 0.8f),
+        size = Size(r * 1.6f, r * 1.6f),
+        style = Stroke(width = 2.dp.toPx()),
+      )
+    }
+    SnapKind.INTERSECTION -> {
+      val c = Color(0xFFEA580C)
+      drawLine(c, Offset(center.x - r, center.y - r), Offset(center.x + r, center.y + r), strokeWidth = 2.2.dp.toPx())
+      drawLine(c, Offset(center.x - r, center.y + r), Offset(center.x + r, center.y - r), strokeWidth = 2.2.dp.toPx())
+    }
+    SnapKind.MIDPOINT -> {
+      val c = Color(0xFF0D9488)
+      val tri =
+        Path().apply {
+          moveTo(center.x, center.y - r)
+          lineTo(center.x + r * 0.86f, center.y + r * 0.65f)
+          lineTo(center.x - r * 0.86f, center.y + r * 0.65f)
+          close()
+        }
+      drawPath(tri, color = c, style = Stroke(width = 2.dp.toPx()))
+    }
+    SnapKind.CENTER -> {
+      val c = Color(0xFF8B5CF6)
+      drawCircle(color = c, radius = r, center = center, style = Stroke(width = 2.dp.toPx()))
+      drawCircle(color = c, radius = 2.5.dp.toPx(), center = center)
+    }
+    SnapKind.PERPENDICULAR -> {
+      val c = colors.valley
+      val path =
+        Path().apply {
+          moveTo(center.x - r * 0.8f, center.y + r * 0.8f)
+          lineTo(center.x - r * 0.8f, center.y - r * 0.2f)
+          lineTo(center.x + r * 0.2f, center.y - r * 0.2f)
+          lineTo(center.x + r * 0.2f, center.y + r * 0.8f)
+        }
+      drawPath(path, color = c, style = Stroke(width = 2.dp.toPx()))
+    }
+    SnapKind.NEAREST_EDGE -> {
+      drawCircle(color = colors.selection, radius = r * 0.7f, center = center, style = Stroke(width = 2.dp.toPx()))
+    }
+    SnapKind.GRID -> {
+      val arm = 7.dp.toPx()
+      drawLine(colors.snapGrid, Offset(center.x - arm, center.y), Offset(center.x + arm, center.y), strokeWidth = 1.8.dp.toPx())
+      drawLine(colors.snapGrid, Offset(center.x, center.y - arm), Offset(center.x, center.y + arm), strokeWidth = 1.8.dp.toPx())
+    }
+    SnapKind.NONE -> Unit
   }
 }
 
@@ -489,5 +671,4 @@ private fun DrawScope.drawPaperGrid(
       strokeWidth = if (isMajor) majorStroke else minorStroke,
     )
   }
-  ceil(0.0) // keep math import clean if needed
 }

@@ -1,5 +1,7 @@
 package com.example.data.serializers
 
+import com.example.core.model.ArcPrimitive
+import com.example.core.model.CirclePrimitive
 import com.example.core.model.CreasePatternDocument
 import com.example.core.model.Edge
 import com.example.core.model.FoldAssignment
@@ -34,6 +36,26 @@ data class EdgeDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class CircleDto(
+  val id: String,
+  val cx: Double,
+  val cy: Double,
+  val radiusMm: Double,
+  val assignment: String = FoldAssignment.CONSTRUCTION.name,
+)
+
+@JsonClass(generateAdapter = true)
+data class ArcDto(
+  val id: String,
+  val cx: Double,
+  val cy: Double,
+  val radiusMm: Double,
+  val startAngleDeg: Double,
+  val sweepAngleDeg: Double,
+  val assignment: String = FoldAssignment.CONSTRUCTION.name,
+)
+
+@JsonClass(generateAdapter = true)
 data class CreasePatternDocumentDto(
   val formatVersion: Int = 1,
   val id: String,
@@ -43,6 +65,8 @@ data class CreasePatternDocumentDto(
   val edges: List<EdgeDto>,
   val createdAt: Long,
   val updatedAt: Long,
+  val circles: List<CircleDto> = emptyList(),
+  val arcs: List<ArcDto> = emptyList(),
 )
 
 @JsonClass(generateAdapter = true)
@@ -55,10 +79,19 @@ data class PreviewEdgeDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class PreviewCircleDto(
+  val cx: Float,
+  val cy: Float,
+  val radiusMm: Float,
+  val assignment: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class PreviewSnapshotDto(
   val widthMm: Float,
   val heightMm: Float,
   val edges: List<PreviewEdgeDto>,
+  val circles: List<PreviewCircleDto> = emptyList(),
 )
 
 class ProjectJsonSerializer {
@@ -69,7 +102,7 @@ class ProjectJsonSerializer {
   fun serialize(document: CreasePatternDocument): String {
     val dto =
       CreasePatternDocumentDto(
-        formatVersion = document.formatVersion,
+        formatVersion = maxOf(document.formatVersion, 2),
         id = document.id,
         name = document.name,
         paper =
@@ -93,6 +126,28 @@ class ProjectJsonSerializer {
           },
         createdAt = document.createdAt,
         updatedAt = document.updatedAt,
+        circles =
+          document.circles.map {
+            CircleDto(
+              id = it.id,
+              cx = it.center.x,
+              cy = it.center.y,
+              radiusMm = it.radiusMm,
+              assignment = it.assignment.name,
+            )
+          },
+        arcs =
+          document.arcs.map {
+            ArcDto(
+              id = it.id,
+              cx = it.center.x,
+              cy = it.center.y,
+              radiusMm = it.radiusMm,
+              startAngleDeg = it.startAngleDeg,
+              sweepAngleDeg = it.sweepAngleDeg,
+              assignment = it.assignment.name,
+            )
+          },
       )
     return documentAdapter.toJson(dto)
   }
@@ -120,6 +175,32 @@ class ProjectJsonSerializer {
           )
         }
       }
+    val circles =
+      dto.circles.map { c ->
+        val assignment =
+          runCatching { FoldAssignment.valueOf(c.assignment) }
+            .getOrDefault(FoldAssignment.CONSTRUCTION)
+        CirclePrimitive(
+          id = c.id,
+          center = Vec2(c.cx, c.cy),
+          radiusMm = c.radiusMm,
+          assignment = assignment,
+        )
+      }
+    val arcs =
+      dto.arcs.map { a ->
+        val assignment =
+          runCatching { FoldAssignment.valueOf(a.assignment) }
+            .getOrDefault(FoldAssignment.CONSTRUCTION)
+        ArcPrimitive(
+          id = a.id,
+          center = Vec2(a.cx, a.cy),
+          radiusMm = a.radiusMm,
+          startAngleDeg = a.startAngleDeg,
+          sweepAngleDeg = a.sweepAngleDeg,
+          assignment = assignment,
+        )
+      }
     return CreasePatternDocument(
       id = dto.id,
       name = dto.name,
@@ -134,6 +215,8 @@ class ProjectJsonSerializer {
       createdAt = dto.createdAt,
       updatedAt = dto.updatedAt,
       formatVersion = dto.formatVersion,
+      circles = circles,
+      arcs = arcs,
     )
   }
 
@@ -151,11 +234,21 @@ class ProjectJsonSerializer {
           assignment = edge.assignment.name,
         )
       }
+    val previewCircles =
+      document.circles.map { c ->
+        PreviewCircleDto(
+          cx = c.center.x.toFloat(),
+          cy = c.center.y.toFloat(),
+          radiusMm = c.radiusMm.toFloat(),
+          assignment = c.assignment.name,
+        )
+      }
     return previewAdapter.toJson(
       PreviewSnapshotDto(
         widthMm = document.paper.widthMm.toFloat(),
         heightMm = document.paper.heightMm.toFloat(),
         edges = previewEdges,
+        circles = previewCircles,
       )
     )
   }

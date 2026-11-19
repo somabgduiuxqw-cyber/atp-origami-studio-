@@ -84,6 +84,22 @@ fun CreaseThumbnail(
           pathEffect = pathEffect,
         )
       }
+
+      for (circle in preview?.circles.orEmpty()) {
+        val assignment =
+          runCatching { FoldAssignment.valueOf(circle.assignment) }
+            .getOrDefault(FoldAssignment.CONSTRUCTION)
+        drawCircle(
+          color = canvasColors.colorFor(assignment),
+          radius = circle.radiusMm * scale,
+          center = Offset(originX + circle.cx * scale, originY + circle.cy * scale),
+          style =
+            androidx.compose.ui.graphics.drawscope.Stroke(
+              width = 1.1.dp.toPx(),
+              pathEffect = if (assignment == FoldAssignment.CONSTRUCTION) dashEffect else null,
+            ),
+        )
+      }
     }
   }
 }
